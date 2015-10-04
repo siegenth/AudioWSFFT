@@ -1,0 +1,93 @@
+namespace application ;
+
+use com.ibm.streamsx.inet.rest::HTTPTupleView ;
+use com.ibm.streamsx.inet.wsserver::WebSocketInject ;
+use com.ibm.streamsx.inet.rest::WebContext ;
+use com.ibm.streamsx.json::JSONToTuple ;
+use com.ibm.streamsx.json::TupleToJSON ;
+int64 getMilliseconds(timestamp ts)
+{
+	return(getSeconds(ts) * 1000l) +(int64)(getNanoseconds(ts) / 1000000u) ;
+}
+
+composite AudioSample
+{
+	graph
+		() as WebContext_3 = WebContext()
+		{
+			param
+			// URL : http:<IP>:8081//html gets to index.thml 
+			//       in "/home/streamsadmin/Development/html" ;  
+				context : "html" ; // notice, no leading '/',  
+				 contextResourceBase : getThisToolkitDir() + "/opt/html" ;
+				// Set to developent directory so I can change things rapidly,
+				// without redeploying the application. 
+				//contextResourceBase : "/home/streamsadmin/Development/html" ;
+				port : 8080 ;
+		}
+
+		(stream<rstring I, int64 T, list<int32> A> JSONToTuple_6_out0) as
+			JSONToTuple_6 = JSONToTuple(Filter_8_out0 as inPort0Alias)
+		{
+		}
+
+		() as FileSink_4 = FileSink(JSONToTuple_6_out0 as inPort0Alias)
+		{
+			param
+				file : "/dev/stdout" ;
+				format : csv ;
+				flush :(uint32) 1 ;
+		}
+
+		(stream<rstring data> WebSocketInject_2_out0) as WebSocketInject_2 =
+			WebSocketInject()
+		{
+			param
+				port : 8086 ;
+			config
+				placement : partitionColocation("jettyStatus") ;
+		}
+
+		/* Need this -- 
+		stream<float64 rnd10, int64 cnt, int64 tm> B = Beacon()
+		{
+			logic
+				state :
+				{
+					mutable int64 idxCount = 0 ;
+					mutable list<int64> fred = [ 23, 45 ] ;
+				}
+
+			param
+				period : 0.2 ;
+			output
+				B : cnt = idxCount ++, tm = getMilliseconds(getTimestamp()), rnd10 =
+					random() *(float64) 10.0l ;
+		}
+
+		/*
+		() as HTTPTupleView = com.ibm.streamsx.inet.rest::HTTPTupleView(B as
+			inPort0Alias)
+		{
+			window
+				inPort0Alias : sliding, count(10), count(1) ;
+			config
+				placement : partitionColocation("jettyStatus") ;
+		}		
+		() as FileSink_7 = FileSink(WebSocketInject_2_out0 as inputStream)
+		{
+			param
+				file : "/dev/stdout" ;
+				flush :(uint32) 1 ;
+				format : csv ;
+		}
+		*/
+		
+		(stream<rstring data> Filter_8_out0) as Filter_8 =
+			Filter(WebSocketInject_2_out0 as inputStream)
+		{
+			param
+				filter : data[0] != "<" ;  // do not let the control commands through
+		}
+
+}

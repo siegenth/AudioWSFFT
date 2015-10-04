@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en-us">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width">
+    <title>Audio-2-Streams</title>
+
+    <link rel="shortcut icon" href="favicon.ico" type="image/x-icon" />
+    <link href='http://fonts.googleapis.com/css?family=Righteous|Nova+Square' rel='stylesheet' type='text/css'>
+
+</head>
+<body>
+<div class="wrapper">
+    <canvas class="visualizer" width="640" height="100"></canvas>
+    <form class="controls">
+        <div>
+            <label for="visual">Visualizer setting</label>
+            <select id="visual" name="visual">
+                <option value="frequencybars" selected>Frequency bars</option>
+                <option value="off">Off</option>
+            </select>
+        </div>
+        <div>
+	  <table border="2"><tr><td>
+            <a class="transmit">Start Trasmitting</a>
+	  </td></tr></table>
+        </div>
+    </form>
+
+
+</div>
+<table>
+    <tr><td>From Id : <input type="text" id="formID"></td></tr>
+    <tr><td>Streams Source Operator (port) : <input type="text" id="outWSsnd"></td></tr>
+</table>
+
+<aside>
+    <h2>Information</h2>
+
+    <p>Voice-change-O-matic is built using:</p>
+
+    <ul>
+
+        <li><a href="https://developer.mozilla.org/en-US/docs/Web/API/Navigator.getUserMedia">getUserMedia</a>, which is currently supported in Firefox, Opera (desktop/mobile) and Chrome (desktop only.) Firefox requires no prefix; the others require <code>webkit</code> prefixes.</li>
+
+        <li><a href="https://developer.mozilla.org/en-US/docs/Web/API/Web_Audio_API">Web Audio API</a>, which is currently supported in Firefox, Chrome, Safari (desktop/mobile) and Opera (desktop only). Firefox and Opera require no prefix; Chrome requires <code>webkit</code> prefixes.</li>
+
+    </ul>
+    <button id="install-btn">Install app</button>
+</aside>
+
+<!-- The following element pulls in the script for the default template functionality -->
+
+<script tyep="text/javascript">
+            var portIDSnd = 8086;
+            var ip = location.host;
+            nodeNameSnd = (ip.split(":") == 1) ? "ws://" + ip : ip.split(":")[0] + ":" + portIDSnd;
+            document.getElementById("outWSsnd").value = nodeNameSnd;
+	    document.getElementById("formID").value = "Mar:" + Math.floor( Math.random()*100);
+</script>
+
+<script src="changeOinstall.js"></script>
+
+<h4>Monitor the data exchange...</h4>
+<pre>SND state:<span id="sndMsg"></span></pre>
+TimeStamp:<span id="currentTime"></span><br>
+<p>
+    TRANSMIT:<span id="currentTransmit"></span>
+</p>
+
+<!-- Below is your custom application script -->
+
+<script src="sendOapp.js"></script>
+
+</body>
+</html>
