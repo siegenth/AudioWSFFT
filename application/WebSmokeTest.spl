@@ -1,0 +1,51 @@
+namespace application ;
+
+use com.ibm.streamsx.inet.rest::WebContext ;
+use com.ibm.streamsx.inet.rest::HTTPTupleView ;
+
+composite WebSmokeTest
+{
+	graph
+		() as WebContext_1 = WebContext()
+		{
+			param
+				port : 8080 ;
+				context : "test" ; // notice, no leading '/',  
+				contextResourceBase : getThisToolkitDir() + "/opt/html" ;
+			config
+				placement : partitionColocation("jettyStatus") ;
+		}
+
+		(stream<int32 itCount>
+			Beacon_3_out0) as Beacon_3 = Beacon()
+		{
+			param
+				period :(float64) 1.0 ;
+			output
+				Beacon_3_out0 : itCount =(int32) IterationCount() ;
+		}
+
+		(stream<int32 itCount, int32 id, float64 longitude, float64 latitude>
+			Functor_4_out0) as Functor_4 = Functor(Beacon_3_out0) {
+			logic state: {
+				mutable float64 latCity = 37.773972;
+				mutable float64 lngCity = -122.431297; 
+			} 
+			
+			output Functor_4_out0:  itCount = itCount,
+				id = itCount % 10,
+				longitude = lngCity + (0.5 - random()),
+				latitude = latCity + (0.5 - random()); 
+		}		
+
+		() as HTTPTupleView_2 = HTTPTupleView(Functor_4_out0 as inPort0Alias)
+		{
+			window
+				inPort0Alias : tumbling, count(10) ;
+			config
+				placement : partitionColocation("jettyStatus") ;
+		}
+
+
+}
+
