@@ -91,7 +91,7 @@ if (navigator.getUserMedia) {
             source = audioCtx.createMediaStreamSource(stream);
             source.connect(analyser);
             visualize();
-            voiceChange();
+            //voiceChange();
         },
 
         // Error callback
@@ -109,12 +109,15 @@ function visualize() {
             var currentTimeValue = actDate.getTime();
             currentTime.innerHTML = currentTimeValue;
             currentTransmit.innerHTML = audioBuffer;
-	    
+			var expandAudio = "";
+			for (var i = 0; i != audioBuffer.length; i++) { 
+				expandAudio +=  audioBuffer[i] +  ",";
+			}	    
             msg =   "{\"I\":"  + "\"" + document.getElementById("formID").value  + "\"," + 
                     "\"T\":" + currentTimeValue + "," +
-	            "\"A\":[" + audioBuffer +  "]}";
+	            "\"A\":[" + expandAudio +  "]}";
             if (wsSnd != null) {
-	      //                $('#transmitting').text(msg);
+	            // $('#transmitting').text(msg);
                 wsSnd.send(msg)
             }
         }

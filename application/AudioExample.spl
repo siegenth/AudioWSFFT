@@ -19,14 +19,14 @@ composite AudioSample
 			// URL : http:<IP>:8081//html gets to index.thml 
 			//       in "/home/streamsadmin/Development/html" ;  
 				context : "html" ; // notice, no leading '/',  
-				 contextResourceBase : getThisToolkitDir() + "/opt/html" ;
-				// Set to developent directory so I can change things rapidly,
+				contextResourceBase : getThisToolkitDir() + "/opt/html" ;
+				// set to development directory so I can change things rapidly,
 				// without redeploying the application. 
 				//contextResourceBase : "/home/streamsadmin/Development/html" ;
 				port : 8080 ;
 		}
 
-		(stream<rstring I, int64 T, list<int32> A> JSONToTuple_6_out0) as
+		(stream<rstring I, int64 T, list<int8> A> JSONToTuple_6_out0) as
 			JSONToTuple_6 = JSONToTuple(Filter_8_out0 as inPort0Alias)
 		{
 		}
@@ -82,12 +82,12 @@ composite AudioSample
 				format : csv ;
 		}
 		*/
-		
 		(stream<rstring data> Filter_8_out0) as Filter_8 =
 			Filter(WebSocketInject_2_out0 as inputStream)
 		{
 			param
-				filter : data[0] != "<" ;  // do not let the control commands through
+				filter : data [ 0 ] != "<" ; // do not let the control commands through
+
 		}
 
 }
