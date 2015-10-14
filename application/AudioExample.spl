@@ -5,7 +5,7 @@ use com.ibm.streamsx.inet.wsserver::WebSocketInject ;
 use com.ibm.streamsx.inet.rest::WebContext ;
 use com.ibm.streamsx.json::JSONToTuple ;
 use com.ibm.streamsx.json::TupleToJSON ;
-type BinaryDataType = tuple<blob outBuf>;
+type BinaryDataType = tuple<blob outBuf> ;
 int64 getMilliseconds(timestamp ts)
 {
 	return(getSeconds(ts) * 1000l) +(int64)(getNanoseconds(ts) / 1000000u) ;
@@ -14,16 +14,18 @@ int64 getMilliseconds(timestamp ts)
  * Convert A 2 character string to binary value.
  * Yes this can be collapsed, but you can see this. 
  */
-uint8 hexToInt(list<uint8> cvt) {
-	mutable uint8 l,h;
+uint8 hexToInt(list<uint8> cvt)
+{
+	mutable uint8 l, h ;
 	mutable uint8 low, high ;
-	l = cvt[0] - (uint8)48;
-	h = cvt[1] - (uint8)48;	
-//	mutable list<uint8> cvt = convertFromUtf8(char2, "utf-8") ;
-	list<uint8> mapp = [ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 0, 0, 0, 0, 0, 0, 10,11,12,13,14,15]; 
-	//////////////////// 0, 1, 2, 3, 4, 5, 6. 7, 8, 9, :, ;, <, =, >, ?, @,  A, B, C, D, E, F
-	low = mapp [l] << 4 ;
-	high =  mapp [h] ;
+	l = cvt [ 0 ] -(uint8) 48 ;
+	h = cvt [ 1 ] -(uint8) 48 ;
+	//	mutable list<uint8> cvt = convertFromUtf8(char2, "utf-8") ;
+	list<uint8> mapp = [ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 0, 0, 0, 0, 0, 0, 10, 11,
+		12, 13, 14, 15 ] ;
+		//////////////////// 0, 1, 2, 3, 4, 5, 6. 7, 8, 9, :, ;, <, =, >, ?, @,  A, B, C, D, E, F
+	low = mapp [ l ] << 4 ;
+	high = mapp [ h ] ;
 	//println((low | high));	
 	return(low | high) ;
 }
@@ -47,23 +49,14 @@ composite AudioSample
 				// that is set on the build??? I should be to the opt directory. 
 				port : 8080 ;
 		}
-		/** (stream<rstring I, int64 T, list<int8> A> JSONToTuple_6_out0) as		
-					JSONToTuple_6 = JSONToTuple(Filter_8_out0 as inPort0Alias)		
-				{		
-				}		
-		*/
-		() as FileSink_4 = FileSink(Custom_5_out0 as inPort0Alias)
-		{
-			param
-				file : "/dev/null" ;
-				format : bin ;
-				flush :(uint32) 1 ;
-		}
 
-		() as FileSink_7 = FileSink(Custom_5_out0 as inputStream)
+		(stream<WebSocketInject_2_out0> FileSink_7_out0) as FileSink_7 =
+			FileSink(Custom_5_out0 as inputStream)
 		{
 			param
-				file : "/tmp/audio.wav" ;
+			//file : "/tmp/audio.wav" ;
+				file : "/tmp/{localtime:m%d:%S}_{id}.wav" ;
+				closeMode : punct ;
 				format : block ;
 				flush :(uint32) 1 ;
 		}
@@ -78,85 +71,56 @@ composite AudioSample
 				placement : partitionColocation("jettyStatus") ;
 		}
 
-		(stream<BinaryDataType> Custom_5_out0) as Custom_5 = Custom(Filter_6_out0)
+		(stream<BinaryDataType> Custom_5_out0) as Custom_5 = Custom(Filter_6_out0 ;
+			Filter_6_out1 as fileControl)
 		{
 			logic
 				state :
 				{
 					list<uint8> resetOut = [ ] ;
-					mutable list<uint8> out;
-					mutable BinaryDataType bdt;
+					mutable list<uint8> out ;
+					mutable BinaryDataType bdt ;
 				}
 
-				onTuple Filter_6_out0 : {
-					mutable list<uint8>cvt = (list<uint8>)convertToBlob(data);
-					out = resetOut;				
-					for(int32 i in range(0, size(cvt), 2)) {
+				onTuple Filter_6_out0 :
+				{
+					mutable list<uint8> cvt =(list<uint8>) convertToBlob(data) ;
+					out = resetOut ;
+					for(int32 i in range(0, size(cvt), 2))
+					{
 					//println("length:" + (rstring)length(data) + " idx:" + (rstring)i);
 						appendM(out, hexToInt(cvt [ i : i + 2 ])) ;
 					}
-					println("length:" + (rstring)size(bdt.outBuf));
-					bdt.outBuf = (blob)out;					
-					submit( bdt, Custom_5_out0);
+					bdt.outBuf =(blob) out ;
+					submit(bdt, Custom_5_out0) ;
+				}
+
+				onTuple fileControl :
+				{
+					if(data [ 0 : 5 ] == "<END>")
+					{
+						println("End of file") ;
+						submit(Sys.WindowMarker, Custom_5_out0) ;
+					}
+
 				}
 
 		}
 
-		(stream<WebSocketInject_2_out0> Filter_6_out0 ; stream<WebSocketInject_2_out0>
-			Filter_6_out1) as Filter_6 = Filter(WebSocketInject_2_out0)
+		(stream<WebSocketInject_2_out0> Filter_6_out0 ;
+			stream<WebSocketInject_2_out0> Filter_6_out1) as Filter_6 =
+			Filter(WebSocketInject_2_out0)
 		{
-			param filter: (length(data) > 0) && (data[0] != '<');			
+			param
+				filter :(length(data) > 0) &&(data [ 0 ] != '<') ;
 		}
 
-		() as FileSink_8 = FileSink(Filter_6_out1)
+		() as FileSink_8 = FileSink(Filter_6_out1, FileSink_7_out0)
 		{
 			param
 				file : "/dev/stdout" ;
-				format: line;
-				flush :(uint32) 1 ;				
-		}
-
-		/* Need this -- 
-		stream<float64 rnd10, int64 cnt, int64 tm> B = Beacon()
-		{
-			logic
-				state :
-				{
-					mutable int64 idxCount = 0 ;
-					mutable list<int64> fred = [ 23, 45 ] ;
-				}
-
-			param
-				period : 0.2 ;
-			output
-				B : cnt = idxCount ++, tm = getMilliseconds(getTimestamp()), rnd10 =
-					random() *(float64) 10.0l ;
-		}
-
-		/*
-		() as HTTPTupleView = com.ibm.streamsx.inet.rest::HTTPTupleView(B as
-			inPort0Alias)
-		{
-			window
-				inPort0Alias : sliding, count(10), count(1) ;
-			config
-				placement : partitionColocation("jettyStatus") ;
-		}		
-
-		(stream<rstring data> Filter_8_out0) as Filter_8 =
-			Filter(WebSocketInject_2_out0 as inputStream)
-		{
-			param
-				filter : data [ 0 ] != "<" ; // do not let the control commands through
-
-		}
-
-		() as FileSink_6 = FileSink(JSONToTuple_6_out0)
-		{
-			param
-				file : "/tmp/audio.csv" ;
-				format : csv ;
+				format : line ;
 				flush :(uint32) 1 ;
 		}
-		*/
+
 }
