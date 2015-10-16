@@ -6,6 +6,7 @@ use com.ibm.streamsx.inet.rest::WebContext ;
 use com.ibm.streamsx.json::JSONToTuple ;
 use com.ibm.streamsx.json::TupleToJSON ;
 type BinaryDataType = tuple<blob outBuf> ;
+type AudioDataType = tuple<rstring id, rstring command, blob outBuf> ;
 int64 getMilliseconds(timestamp ts)
 {
 	return(getSeconds(ts) * 1000l) +(int64)(getNanoseconds(ts) / 1000000u) ;
@@ -20,13 +21,11 @@ uint8 hexToInt(list<uint8> cvt)
 	mutable uint8 low, high ;
 	l = cvt [ 0 ] -(uint8) 48 ;
 	h = cvt [ 1 ] -(uint8) 48 ;
-	//	mutable list<uint8> cvt = convertFromUtf8(char2, "utf-8") ;
-	list<uint8> mapp = [ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 0, 0, 0, 0, 0, 0, 10, 11,
-		12, 13, 14, 15 ] ;
+	list<uint8> mapp = [ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 0, 0, 0, 0, 0, 0, 10,
+		11, 12, 13, 14, 15 ] ;
 		//////////////////// 0, 1, 2, 3, 4, 5, 6. 7, 8, 9, :, ;, <, =, >, ?, @,  A, B, C, D, E, F
 	low = mapp [ l ] << 4 ;
 	high = mapp [ h ] ;
-	//println((low | high));	
 	return(low | high) ;
 }
 
@@ -50,12 +49,11 @@ composite AudioSample
 				port : 8080 ;
 		}
 
-		(stream<WebSocketInject_2_out0> FileSink_7_out0) as FileSink_7 =
+		(stream<WebSocketInject_2_out0> FileSink_7_out0) as waveFileWrite =
 			FileSink(Custom_5_out0 as inputStream)
 		{
 			param
-			//file : "/tmp/audio.wav" ;
-				file : "/tmp/{localtime:m%d:%S}_{id}.wav" ;
+				file : "/tmp/COMP{localtime:%d%M}{ID}.wav" ;
 				closeMode : punct ;
 				format : block ;
 				flush :(uint32) 1 ;
@@ -71,8 +69,9 @@ composite AudioSample
 				placement : partitionColocation("jettyStatus") ;
 		}
 
-		(stream<BinaryDataType> Custom_5_out0) as Custom_5 = Custom(Filter_6_out0 ;
-			Filter_6_out1 as fileControl)
+		(stream<BinaryDataType> Custom_5_out0 as wavFileOut ; stream<AudioDataType>
+			wavStreamOut) as hexToBinay = Custom(Filter_6_out0 as hexIn ; Filter_6_out1
+			as fileControl)
 		{
 			logic
 				state :
@@ -80,19 +79,60 @@ composite AudioSample
 					list<uint8> resetOut = [ ] ;
 					mutable list<uint8> out ;
 					mutable BinaryDataType bdt ;
+					mutable list<uint8> cvt ;
+					mutable int32 hash1, hash2 ;
+					mutable AudioDataType adt ;
 				}
 
-				onTuple Filter_6_out0 :
+				onTuple hexIn :
 				{
-					mutable list<uint8> cvt =(list<uint8>) convertToBlob(data) ;
 					out = resetOut ;
-					for(int32 i in range(0, size(cvt), 2))
+					if((length(data) != 0) &&(data [ 0 ] == "#"))
 					{
-					//println("length:" + (rstring)length(data) + " idx:" + (rstring)i);
-						appendM(out, hexToInt(cvt [ i : i + 2 ])) ;
+						hash1 = findFirst(data, "#", 1) ;
+						if(hash1 != - 1)
+						{
+							hash2 = findFirst(data, "#", hash1 + 1) ;
+							if(hash2 != - 1)
+							{
+								adt.id = data [ 1 : hash1 ] ;
+								adt.command = data [ hash1 + 1 : hash2 ] ;
+								println("AUDIO rcv id:" + adt.id + " command:" + adt.command +
+									" length:" +(rstring) length(data)) ;
+								if(adt.command == "DATA")
+								{
+									cvt =(list<uint8>) convertToBlob(data [ hash2 + 1 : ]) ;
+									for(int32 i in range(0, size(cvt), 2))
+									{
+										appendM(out, hexToInt(cvt [ i : i + 2 ])) ;
+									}
+									adt.outBuf =(blob) out ;
+									submit(adt, wavStreamOut) ;
+								}
+
+								else if(adt.command == "STOP")
+								{
+									submit(Sys.WindowMarker, wavStreamOut) ;
+								}
+
+							}
+
+						}
+
 					}
-					bdt.outBuf =(blob) out ;
-					submit(bdt, Custom_5_out0) ;
+
+					else
+					{ // File Data
+						cvt =(list<uint8>) convertToBlob(data) ;
+						for(int32 i in range(0, size(cvt), 2))
+						{
+							appendM(out, hexToInt(cvt [ i : i + 2 ])) ;
+						}
+
+						bdt.outBuf =(blob) out ;
+						submit(bdt, wavFileOut) ;
+					}
+
 				}
 
 				onTuple fileControl :
@@ -100,27 +140,41 @@ composite AudioSample
 					if(data [ 0 : 5 ] == "<END>")
 					{
 						println("End of file") ;
-						submit(Sys.WindowMarker, Custom_5_out0) ;
+						submit(Sys.WindowMarker, wavFileOut) ;
 					}
 
 				}
 
-		}
+			}
 
 		(stream<WebSocketInject_2_out0> Filter_6_out0 ;
-			stream<WebSocketInject_2_out0> Filter_6_out1) as Filter_6 =
-			Filter(WebSocketInject_2_out0)
-		{
-			param
-				filter :(length(data) > 0) &&(data [ 0 ] != '<') ;
-		}
+			stream<WebSocketInject_2_out0> Filter_6_out1) as selectControlData =
+				Filter(WebSocketInject_2_out0)
+			{
+				param
+					filter :(length(data) > 0) &&(data [ 0 ] != '<') ;
+			}
 
-		() as FileSink_8 = FileSink(Filter_6_out1, FileSink_7_out0)
-		{
-			param
-				file : "/dev/stdout" ;
-				format : line ;
-				flush :(uint32) 1 ;
-		}
+		() as messageSink = FileSink(Filter_6_out1, FileSink_7_out0, FileSink_7_out1)
+			{
+				param
+					file : "/dev/stdout" ;
+					format : line ;
+					flush :(uint32) 1 ;
+			}
 
-}
+		(stream<WebSocketInject_2_out0> FileSink_7_out1) as FileSink_7 =
+				FileSink(Functor_8_out0 as inPort0Alias)
+			{
+				param
+					file : "/tmp/STRM{localtime:%d%M}{id}.wavraw" ;
+					closeMode : punct ;
+					format : block ;
+					flush :(uint32) 1 ;
+			}
+
+		(stream<BinaryDataType> Functor_8_out0) as Functor_8 = Functor(wavStreamOut)
+			{
+			}
+
+	}
