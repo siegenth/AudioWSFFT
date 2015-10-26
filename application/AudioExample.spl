@@ -168,7 +168,7 @@ composite AudioSample
 			logic
 				onTuple inputStream :
 				{
-					appLog(Log.info, "ID:" + inputStream . id + "command:" + command + ":" +
+					appLog(Log.info, " ID:" + inputStream . id + "command:" + command + ":" +
 						commandData) ;
 				}
 
