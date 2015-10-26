@@ -7,6 +7,9 @@ use com.ibm.streamsx.json::JSONToTuple ;
 use com.ibm.streamsx.json::TupleToJSON ;
 type BinaryDataType = tuple<blob outBuf> ;
 type AudioDataType = tuple<rstring id, rstring command, blob outBuf> ;
+type AudioCommandType = tuple<rstring id, rstring command,
+	rstring commandData> ;
+type SimpleTuple = tuple<rstring data> ;
 int64 getMilliseconds(timestamp ts)
 {
 	return(getSeconds(ts) * 1000l) +(int64)(getNanoseconds(ts) / 1000000u) ;
@@ -49,16 +52,6 @@ composite AudioSample
 				port : 8080 ;
 		}
 
-		(stream<WebSocketInject_2_out0> FileSink_7_out0) as waveFileWrite =
-			FileSink(Custom_5_out0 as inputStream)
-		{
-			param
-				file : "/tmp/COMP{localtime:%d%M}{ID}.wav" ;
-				closeMode : punct ;
-				format : block ;
-				flush :(uint32) 1 ;
-		}
-
 		(stream<rstring data> WebSocketInject_2_out0) as WebSocketInject_2 =
 		//(stream<list<uint16> data> WebSocketInject_2_out0) as WebSocketInject_2 =
 		WebSocketInject()
@@ -69,23 +62,26 @@ composite AudioSample
 				placement : partitionColocation("jettyStatus") ;
 		}
 
-		(stream<BinaryDataType> Custom_5_out0 as wavFileOut ; stream<AudioDataType>
-			wavStreamOut) as hexToBinay = Custom(Filter_6_out0 as hexIn ; Filter_6_out1
-			as fileControl)
+		(stream<AudioDataType> Custom_7_out0 as DataOut ; stream<AudioCommandType>
+			Custom_7_out1 as ControlOut) as WSSocketProcess = Custom(WebSocketInject_2_out0 as
+			RawIn)
 		{
 			logic
 				state :
 				{
+					mutable int32 messageCount = 0 ;
 					list<uint8> resetOut = [ ] ;
 					mutable list<uint8> out ;
 					mutable BinaryDataType bdt ;
 					mutable list<uint8> cvt ;
 					mutable int32 hash1, hash2 ;
 					mutable AudioDataType adt ;
+					mutable AudioCommandType act ;
 				}
 
-				onTuple hexIn :
+				onTuple RawIn :
 				{
+					messageCount ++ ;
 					out = resetOut ;
 					if((length(data) != 0) &&(data [ 0 ] == "#"))
 					{
@@ -97,8 +93,13 @@ composite AudioSample
 							{
 								adt.id = data [ 1 : hash1 ] ;
 								adt.command = data [ hash1 + 1 : hash2 ] ;
-								println("AUDIO rcv id:" + adt.id + " command:" + adt.command +
-									" length:" +(rstring) length(data)) ;
+								if((messageCount % 10) == 0)
+								{
+									appLog(Log.info, "messageCount:" +(rstring) messageCount + " id:" +
+										adt.id + " command:" + adt.command + " length:" +(rstring)
+										length(data)) ;
+								}
+
 								if(adt.command == "DATA")
 								{
 									cvt =(list<uint8>) convertToBlob(data [ hash2 + 1 : ]) ;
@@ -106,75 +107,72 @@ composite AudioSample
 									{
 										appendM(out, hexToInt(cvt [ i : i + 2 ])) ;
 									}
+
 									adt.outBuf =(blob) out ;
-									submit(adt, wavStreamOut) ;
+									submit(adt, DataOut) ;
+									return ;
 								}
 
-								else if(adt.command == "STOP")
+								act.command = adt.command ;
+								act.id = adt.id ;
+								act.commandData = data [ hash2 + 1 : ] ;
+								appLog(Log.info, "ID: " + act.id + " COMMMAND:" + act.command) ;
+								if(act.command == "STOP")
 								{
-									submit(Sys.WindowMarker, wavStreamOut) ;
+									submit(Sys.WindowMarker, DataOut) ;
 								}
-
+								// All commands other the 'DATA' are sent down the line. 
+								submit(act, ControlOut) ;
+								return;
 							}
 
 						}
 
 					}
-
-					else
-					{ // File Data
-						cvt =(list<uint8>) convertToBlob(data) ;
-						for(int32 i in range(0, size(cvt), 2))
-						{
-							appendM(out, hexToInt(cvt [ i : i + 2 ])) ;
-						}
-
-						bdt.outBuf =(blob) out ;
-						submit(bdt, wavFileOut) ;
-					}
+					act.id = "*UNKNOWN ID*";
+					act.command = "UNKNOWN MESSAGE";
+					act.commandData = data; 
+					appLog(Log.warn, "Unknown message received : " + act.commandData[:40]) ;					
+					submit(act, ControlOut) ;					
 
 				}
 
-				onTuple fileControl :
+		}
+		/** 
+		 * Only send out the binary data to file. 
+		 */
+		(stream<BinaryDataType> Functor_8_out0) as StripBlobAudio = Functor(Custom_7_out0
+			as wavStreamOut) {}		
+		/**
+		 * Write the binary data, when file closes send down the file name.
+		 */
+		(stream<rstring fileName> FileSink_7_out1) as WriteBlobAudio =
+			FileSink(Functor_8_out0 as inPort0Alias)
+		{
+			param
+				file : "/tmp/STRM{localtime:%d%M}{id}.wavraw" ;
+				closeMode : punct ;
+				format : block ;
+				flush :(uint32) 1 ;
+		}
+
+		(stream<AudioCommandType> Functor_7_out0) as FileNameFormat =
+			Functor(FileSink_7_out1)
+		{
+			output
+				Functor_7_out0 : id = "?", command = "STOP file closed", commandData = fileName ;
+		}
+
+		() as TraceSink = Custom(Custom_7_out1, Functor_7_out0 as inputStream)
+		{
+			logic
+				onTuple inputStream :
 				{
-					if(data [ 0 : 5 ] == "<END>")
-					{
-						println("End of file") ;
-						submit(Sys.WindowMarker, wavFileOut) ;
-					}
-
+					appLog(Log.info, "ID:" + inputStream . id + "command:" + command + ":" +
+						commandData) ;
 				}
 
-			}
+		}
 
-		(stream<WebSocketInject_2_out0> Filter_6_out0 ;
-			stream<WebSocketInject_2_out0> Filter_6_out1) as selectControlData =
-				Filter(WebSocketInject_2_out0)
-			{
-				param
-					filter :(length(data) > 0) &&(data [ 0 ] != '<') ;
-			}
 
-		() as messageSink = FileSink(Filter_6_out1, FileSink_7_out0, FileSink_7_out1)
-			{
-				param
-					file : "/dev/stdout" ;
-					format : line ;
-					flush :(uint32) 1 ;
-			}
-
-		(stream<WebSocketInject_2_out0> FileSink_7_out1) as FileSink_7 =
-				FileSink(Functor_8_out0 as inPort0Alias)
-			{
-				param
-					file : "/tmp/STRM{localtime:%d%M}{id}.wavraw" ;
-					closeMode : punct ;
-					format : block ;
-					flush :(uint32) 1 ;
-			}
-
-		(stream<BinaryDataType> Functor_8_out0) as Functor_8 = Functor(wavStreamOut)
-			{
-			}
-
-	}
+}
