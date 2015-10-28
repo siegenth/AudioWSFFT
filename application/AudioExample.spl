@@ -5,8 +5,11 @@ use com.ibm.streamsx.inet.wsserver::WebSocketInject ;
 use com.ibm.streamsx.inet.rest::WebContext ;
 use com.ibm.streamsx.json::JSONToTuple ;
 use com.ibm.streamsx.json::TupleToJSON ;
-type BinaryDataType = tuple<blob outBuf> ;
-type AudioDataType = tuple<rstring id, rstring command, blob outBuf> ;
+use com.ibm.streamsx.inet.wsserver::WebSocketSend ;
+type BinaryDataType = tuple<blob outBlob> ;
+type AudioDataType = tuple<rstring id, rstring command, uint64 size,
+	blob outBlob, rstring signalData> ;
+type AudioSignalType = tuple<rstring id, rstring signalData> ;
 type AudioCommandType = tuple<rstring id, rstring command,
 	rstring commandData> ;
 type SimpleTuple = tuple<rstring data> ;
@@ -63,8 +66,8 @@ composite AudioSample
 		}
 
 		(stream<AudioDataType> Custom_7_out0 as DataOut ; stream<AudioCommandType>
-			Custom_7_out1 as ControlOut) as WSSocketProcess = Custom(WebSocketInject_2_out0 as
-			RawIn)
+			Custom_7_out1 as ControlOut) as WSSocketProcess =
+			Custom(WebSocketInject_2_out0 as RawIn)
 		{
 			logic
 				state :
@@ -108,7 +111,9 @@ composite AudioSample
 										appendM(out, hexToInt(cvt [ i : i + 2 ])) ;
 									}
 
-									adt.outBuf =(blob) out ;
+									adt.outBlob =(blob) out ;
+									adt.size = blobSize(adt.outBlob) ;
+									adt.signalData = data [ hash2 + 1 : ] ;
 									submit(adt, DataOut) ;
 									return ;
 								}
@@ -123,26 +128,29 @@ composite AudioSample
 								}
 								// All commands other the 'DATA' are sent down the line. 
 								submit(act, ControlOut) ;
-								return;
+								return ;
 							}
 
 						}
 
 					}
-					act.id = "*UNKNOWN ID*";
-					act.command = "UNKNOWN MESSAGE";
-					act.commandData = data; 
-					appLog(Log.warn, "Unknown message received : " + act.commandData[:40]) ;					
-					submit(act, ControlOut) ;					
 
+					act.id = "*UNKNOWN ID*" ;
+					act.command = "UNKNOWN MESSAGE" ;
+					act.commandData = data ;
+					appLog(Log.warn, "Unknown message received : " + act.commandData [ : 40
+						]) ;
+					submit(act, ControlOut) ;
 				}
 
 		}
 		/** 
 		 * Only send out the binary data to file. 
 		 */
-		(stream<BinaryDataType> Functor_8_out0) as StripBlobAudio = Functor(Custom_7_out0
-			as wavStreamOut) {}		
+		(stream<BinaryDataType> Functor_8_out0) as StripBlobAudio =
+			Functor(Custom_7_out0 as wavStreamOut)
+		{
+		}
 		/**
 		 * Write the binary data, when file closes send down the file name.
 		 */
@@ -160,7 +168,8 @@ composite AudioSample
 			Functor(FileSink_7_out1)
 		{
 			output
-				Functor_7_out0 : id = "?", command = "STOP file closed", commandData = fileName ;
+				Functor_7_out0 : id = "?", command = "STOP file closed", commandData =
+					fileName ;
 		}
 
 		() as TraceSink = Custom(Custom_7_out1, Functor_7_out0 as inputStream)
@@ -174,5 +183,17 @@ composite AudioSample
 
 		}
 
+		() as WebSocketSend_8 = WebSocketSend(Functor_10_out0 as inPort0Alias)
+		{
+			param
+				port : 8087 ;
+			config
+				placement : partitionColocation("jettyStatus") ;
+		}
+
+		(stream<AudioSignalType> Functor_10_out0) as Functor_10 =
+			Functor(Custom_7_out0 as inputStream)
+		{
+		}
 
 }
