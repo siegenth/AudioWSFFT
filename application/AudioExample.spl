@@ -6,6 +6,8 @@ use com.ibm.streamsx.inet.rest::WebContext ;
 use com.ibm.streamsx.json::JSONToTuple ;
 use com.ibm.streamsx.json::TupleToJSON ;
 use com.ibm.streamsx.inet.wsserver::WebSocketSend ;
+use com.ibm.streams.timeseries.analysis::* ;
+use com.ibm.streams.timeseries.analysis::FFT ;
 type BinaryDataType = tuple<blob outBlob> ;
 type AudioDataType = tuple<rstring id, rstring command, uint64 size,
 	blob outBlob, rstring signalData> ;
@@ -13,6 +15,8 @@ type AudioSignalType = tuple<rstring id, rstring signalData> ;
 type AudioCommandType = tuple<rstring id, rstring command,
 	rstring commandData> ;
 type AudioSampleType = tuple<rstring id, float32 sample> ;
+type AudioFFTType = tuple<rstring id, list<float64> magnitude> ;
+type AudioSample64Type = tuple<rstring id, float64 sample> ;
 type SimpleTuple = tuple<rstring data> ;
 int64 getMilliseconds(timestamp ts)
 {
@@ -217,10 +221,11 @@ composite AudioSample
 						audioSample.sample =((float32) word /(float32) 32767.0) ;
 						appTrc(Trace.trace,(rstring) hByte + ":" +(rstring) lByte + "::"
 							+(rstring) word + "->" +(rstring) audioSample.sample) ;
-						submit(audioSample, O);
+						submit(audioSample, O) ;
 					}
 
 					//submit(audioSample, O) ;
+
 				}
 
 				onPunct Custom_7_out0 : submit(Sys.WindowMarker, O) ;
@@ -235,6 +240,39 @@ composite AudioSample
 				partitionBy : id ;
 			output
 				Aggregate_12_out0 : id = id, sample = Sum(abs(sample)) ;
+		}
+
+		(stream<AudioSample64Type> Functor_14_out0) as Functor_14 =
+			Functor(Custom_10_out0)
+		{
+			output
+				Functor_14_out0 : id = id, sample =(float64) Custom_10_out0.sample ;
+		}
+
+		(stream<AudioFFTType> FFTout) as FFT_12 = FFT(Functor_14_out0 as AudioIn)
+		{
+			window
+				AudioIn : sliding, count(2048), count(512) ;
+			param
+				algorithm : realFFT ;
+				inputTimeSeries : sample ;
+				useHamming : true ;
+			output
+				FFTout : magnitude = power() ;
+		}
+
+		() as FileSink_13 = FileSink(FFTout)
+		{
+			param
+				format : csv ;
+				flush : 0u ;
+				file : "/tmp/FftMag.out" ;
+		}
+
+		() as FileSink_14 = FileSink(Functor_14_out0)
+		{
+			param
+				file : "/tmp/FFTinputA6.data" ;
 		}
 
 }
