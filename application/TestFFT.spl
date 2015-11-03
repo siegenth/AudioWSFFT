@@ -1,0 +1,38 @@
+namespace application ;
+
+use com.ibm.streams.timeseries.analysis::FFT ;
+ 
+composite TestFFT
+{
+	graph
+		(stream<AudioSample64Type> FileSource_1_out0) as FileSource_1 = FileSource()
+		{
+		param 
+			file: "/tmp/FFTinputA8.input"  ;
+		}
+
+		() as FileSink_2 = FileSink(localPort)
+		{
+			param
+				file : "/tmp/FFTmapPowerA8.csv"  ;
+				flush: 1u;
+				format: csv;
+		}
+
+		(stream <rstring id, list<float64> magnitude,list<float64> power > localPort) as externPort   = FFT(FileSource_1_out0 as
+			inputStream)
+		{
+			window
+				inputStream : tumbling, count(2048);		
+			param
+				inputTimeSeries : sample ;
+				algorithm : realFFT ;
+				useHamming : true ;				
+			output
+				localPort : magnitude = magnitude(), power=power() ;
+		}
+	
+		
+
+}
+
