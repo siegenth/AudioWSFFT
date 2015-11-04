@@ -1,38 +1,102 @@
 namespace application ;
 
 use com.ibm.streams.timeseries.analysis::FFT ;
- 
+
 composite TestFFT
 {
 	graph
 		(stream<AudioSample64Type> FileSource_1_out0) as FileSource_1 = FileSource()
 		{
-		param 
-			file: "/tmp/FFTinputA8.input"  ;
-		}
-
-		() as FileSink_2 = FileSink(localPort)
-		{
 			param
-				file : "/tmp/FFTmapPowerA8.csv"  ;
-				flush: 1u;
-				format: csv;
+				file : "/tmp/FFTinput.data" ;
 		}
 
-		(stream <rstring id, list<float64> magnitude,list<float64> power > localPort) as externPort   = FFT(FileSource_1_out0 as
-			inputStream)
+
+
+		(stream<rstring id, list<complex64> complex> localPort) as AudioFFT =
+			FFT(FileSource_1_out0 as inputStream)
 		{
 			window
-				inputStream : tumbling, count(2048);		
+				inputStream : tumbling, count(4096) ;
 			param
 				inputTimeSeries : sample ;
 				algorithm : realFFT ;
-				useHamming : true ;				
+				useHamming : true ;
 			output
-				localPort : magnitude = magnitude(), power=power() ;
+				localPort : complex = FFTAsComplex() ;
 		}
-	
-		
+
+		(stream<AudioFFTAmpType> Custom_5_out0) as AbsoluteFFT = Custom(localPort as
+			I)
+		{
+			logic
+				state :
+				{
+					mutable list<float64> ampList ;
+					mutable int32 idx = 0 ;
+				}
+
+				onTuple localPort :
+				{
+					clearM(ampList) ;
+					for(complex64 comp in localPort.complex)
+					{
+						appendM(ampList, abs(comp)) ;
+					}
+
+					submit({ id = id, ampFFT = ampList }, Custom_5_out0) ;
+				}
+
+		}
+
+		(stream<AudioQuantileType> Tile_out0 as O) as Tile = Custom(Custom_5_out0 as I)
+		{
+			logic
+				state :
+				{
+					mutable list<float64> stage = [ ] ;
+					mutable float64 sliceTotal ;
+					mutable uint32 sliceChunk ;
+					mutable int32 sliceSize ;
+					//				 	mutable int32 idx;
+
+				}
+
+				onTuple I :
+				{
+					clearM(stage) ;
+					sliceTotal = sum(ampFFT) ;
+					sliceSize = size(ampFFT) / 6 ;
+					//for (float64 i in range(I.ampFFT));				
+					for(int32 idx in range(0, size(ampFFT), sliceSize))
+					{
+						appendM(stage, sum(ampFFT [ idx : idx + sliceSize ]) / sliceTotal) ;
+					}
+
+					submit({ id = id, tile1 = stage[0], tile2=stage[1], tile3=stage[2], tile4 = stage[3] }, O) ;
+				}
+
+		}
+
+		(stream<AudioQuantileType> Aggregate_6_out0) as Aggregate_6 =
+			Aggregate(Tile_out0 as inPort0Alias)
+		{
+			window
+				inPort0Alias : tumbling , count(8) ;
+			output 
+				Aggregate_6_out0 :
+					tile1 = Average(tile1),
+					tile2 = Average(tile2),  
+				    tile3 = Average(tile3),
+					tile4 = Average(tile4);  				      
+		}
+		() as FileSink_2 = FileSink(Aggregate_6_out0 as inPort0Alias)
+		{
+			param
+				file : "/dev/stdout" ;
+				flush : 1u ;
+				format : csv ;
+		}		
 
 }
 

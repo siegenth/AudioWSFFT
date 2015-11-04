@@ -17,6 +17,10 @@ type AudioCommandType = tuple<rstring id, rstring command,
 type AudioSampleType = tuple<rstring id, float32 sample> ;
 type AudioFFTType = tuple<rstring id, list<float64> magnitude> ;
 type AudioSample64Type = tuple<rstring id, float64 sample> ;
+type AudioFFTAmpType = tuple<rstring id, list<float64> ampFFT> ;
+type AudioTileType = tuple<rstring id, list<float64> tile> ;
+type AudioQuantileType = tuple<rstring id, float64 tile1, float64 tile2,
+	float64 tile3, float64 tile4> ;
 type SimpleTuple = tuple<rstring data> ;
 int64 getMilliseconds(timestamp ts)
 {
@@ -58,6 +62,8 @@ composite AudioSample
 				// NOTE the only way I got this to work is to mess up the Data directory
 				// that is set on the build??? I should be to the opt directory. 
 				port : 8080 ;
+			config
+				placement : partitionColocation("jettyStatus") ;				
 		}
 
 		(stream<rstring data> WebSocketInject_2_out0) as WebSocketInject_2 =
@@ -152,13 +158,16 @@ composite AudioSample
 		/** 
 		 * Only send out the binary data to file. 
 		 */
+/* 
 		(stream<BinaryDataType> Functor_8_out0) as StripBlobAudio =
 			Functor(Custom_7_out0 as wavStreamOut)
-		{
-		}
-		/**
+		{		}
+		* */
+
+/**
 		 * Write the binary data, when file closes send down the file name.
 		 */
+/* 
 		(stream<rstring fileName> FileSink_7_out1) as WriteBlobAudio =
 			FileSink(Functor_8_out0 as inPort0Alias)
 		{
@@ -187,8 +196,9 @@ composite AudioSample
 				}
 
 		}
-
-		() as WebSocketSend_8 = WebSocketSend(Aggregate_12_out0 as inPort0Alias)
+*/
+ 
+		() as WebSocketSend_8 = WebSocketSend(Aggregate_6_out0 as inPort0Alias)
 		{
 			param
 				port : 8087 ;
@@ -230,7 +240,7 @@ composite AudioSample
 
 				onPunct Custom_7_out0 : submit(Sys.WindowMarker, O) ;
 		}
-
+		/* 
 		(stream<AudioSampleType> Aggregate_12_out0) as Aggregate_12 =
 			Aggregate(Custom_10_out0 as inPort0Alias)
 		{
@@ -241,14 +251,14 @@ composite AudioSample
 			output
 				Aggregate_12_out0 : id = id, sample = Sum(abs(sample)) ;
 		}
-
+*/
 		(stream<AudioSample64Type> Functor_14_out0) as Functor_14 =
 			Functor(Custom_10_out0)
 		{
 			output
 				Functor_14_out0 : id = id, sample =(float64) Custom_10_out0.sample ;
 		}
-
+		/* 
 		(stream<AudioFFTType> FFTout) as FFT_12 = FFT(Functor_14_out0 as AudioIn)
 		{
 			window
@@ -260,19 +270,99 @@ composite AudioSample
 			output
 				FFTout : magnitude = power() ;
 		}
-
-		() as FileSink_13 = FileSink(FFTout)
+*/
+///
+		(stream<rstring id, list<complex64> complex> localPort as FFTout) as
+			AudioFFT = FFT(Functor_14_out0 as audioIn)
 		{
+			window
+				audioIn : tumbling, count(4096) ;
 			param
-				format : csv ;
-				flush : 0u ;
-				file : "/tmp/FftMag.out" ;
+				inputTimeSeries : sample ;
+				algorithm : realFFT ;
+				useHamming : true ;
+			output
+				localPort : complex = FFTAsComplex() ;
+		}
+
+		///
+		(stream<AudioFFTAmpType> Custom_5_out0 as O) as AbsoluteFFT = Custom(localPort
+			as I)
+		{
+			logic
+				state :
+				{
+					mutable list<float64> ampList ;
+					mutable int32 idx = 0 ;
+				}
+
+				onTuple I :
+				{
+					clearM(ampList) ;
+					for(complex64 comp in I.complex)
+					{
+						appendM(ampList, abs(comp)) ;
+					}
+
+					submit({ id = id, ampFFT = ampList }, O) ;
+				}
+
+		}
+		/**
+		 * Generate full set of tiles, only move the the lowest 4 down the stream.
+		 */
+		(stream<AudioQuantileType> Tile_out0 as O) as Tile = Custom(Custom_5_out0 as
+			I)
+		{
+			logic
+				state :
+				{
+					mutable list<float64> stage = [ ] ;
+					mutable float64 sliceTotal ;
+					mutable uint32 sliceChunk ;
+					mutable int32 sliceSize ;
+					//				 	mutable int32 idx;
+
+				}
+
+				onTuple I :
+				{
+					clearM(stage) ;
+					sliceTotal = sum(ampFFT) ;
+					sliceSize = size(ampFFT) / 6 ;
+					//for (float64 i in range(I.ampFFT));				
+					for(int32 idx in range(0, size(ampFFT), sliceSize))
+					{
+						appendM(stage, sum(ampFFT [ idx : idx + sliceSize ]) / sliceTotal) ;
+					}
+
+					submit({ id = id, tile1 = stage [ 0 ], tile2 = stage [ 1 ], tile3 = stage
+						[ 2 ], tile4 = stage [ 3 ] }, O) ;
+				}
+
+		}
+
+		(stream<AudioQuantileType> Aggregate_6_out0) as AggregateTile =
+			Aggregate(Tile_out0 as inPort0Alias)
+		{
+			window
+				inPort0Alias : tumbling, count(8) ;
+			output
+				Aggregate_6_out0 : tile1 = Average(tile1), tile2 = Average(tile2), tile3 =
+					Average(tile3), tile4 = Average(tile4) ;
 		}
 
 		() as FileSink_14 = FileSink(Functor_14_out0)
 		{
 			param
-				file : "/tmp/FFTinputA6.data" ;
+				file : "/tmp/FFTinput.data" ;
+				flush: 1u;
+		}
+
+		() as FileSink_12 = FileSink(Aggregate_6_out0)
+		{
+			param
+				file : "/dev/stdout" ;
 		}
 
 }
