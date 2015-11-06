@@ -71,11 +71,9 @@ composite TestFFT
 					{
 						appendM(stage, sum(ampFFT [ idx : idx + sliceSize ]) / sliceTotal) ;
 					}
-
 					submit({ id = id, tile1 = stage [ 0 ], tile2 = stage [ 1 ], tile3 = stage
 						[ 2 ], tile4 = stage [ 3 ] }, O) ;
 				}
-
 		}
 
 		(stream<AudioQuantileType> Aggregate_6_out0) as Aggregate_6 =
