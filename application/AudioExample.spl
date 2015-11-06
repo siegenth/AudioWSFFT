@@ -355,7 +355,7 @@ composite AudioSample
 		() as FileSink_14 = FileSink(Functor_14_out0)
 		{
 			param
-				file : "/tmp/FFTinput.data" ;
+				file : "/dev/null" ;
 				flush: 1u;
 		}
 

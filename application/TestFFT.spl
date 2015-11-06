@@ -11,8 +11,6 @@ composite TestFFT
 				file : "/tmp/FFTinput.data" ;
 		}
 
-
-
 		(stream<rstring id, list<complex64> complex> localPort) as AudioFFT =
 			FFT(FileSource_1_out0 as inputStream)
 		{
@@ -49,7 +47,8 @@ composite TestFFT
 
 		}
 
-		(stream<AudioQuantileType> Tile_out0 as O) as Tile = Custom(Custom_5_out0 as I)
+		(stream<AudioQuantileType> Tile_out0 as O) as Tile = Custom(Custom_5_out0 as
+			I)
 		{
 			logic
 				state :
@@ -73,7 +72,8 @@ composite TestFFT
 						appendM(stage, sum(ampFFT [ idx : idx + sliceSize ]) / sliceTotal) ;
 					}
 
-					submit({ id = id, tile1 = stage[0], tile2=stage[1], tile3=stage[2], tile4 = stage[3] }, O) ;
+					submit({ id = id, tile1 = stage [ 0 ], tile2 = stage [ 1 ], tile3 = stage
+						[ 2 ], tile4 = stage [ 3 ] }, O) ;
 				}
 
 		}
@@ -82,21 +82,19 @@ composite TestFFT
 			Aggregate(Tile_out0 as inPort0Alias)
 		{
 			window
-				inPort0Alias : tumbling , count(8) ;
-			output 
-				Aggregate_6_out0 :
-					tile1 = Average(tile1),
-					tile2 = Average(tile2),  
-				    tile3 = Average(tile3),
-					tile4 = Average(tile4);  				      
+				inPort0Alias : tumbling, count(8) ;
+			output
+				Aggregate_6_out0 : tile1 = Average(tile1), tile2 = Average(tile2), tile3 =
+					Average(tile3), tile4 = Average(tile4) ;
 		}
+
 		() as FileSink_2 = FileSink(Aggregate_6_out0 as inPort0Alias)
 		{
 			param
 				file : "/dev/stdout" ;
 				flush : 1u ;
 				format : csv ;
-		}		
+		}
 
 }
 
