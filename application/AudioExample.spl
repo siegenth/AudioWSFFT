@@ -63,7 +63,7 @@ composite AudioSample
 				// that is set on the build??? I should be to the opt directory. 
 				port : 8080 ;
 			config
-				placement : partitionColocation("jettyStatus") ;				
+				placement : partitionColocation("jettyStatus") ;
 		}
 
 		(stream<rstring data> WebSocketInject_2_out0) as WebSocketInject_2 =
@@ -197,7 +197,6 @@ composite AudioSample
 
 		}
 */
- 
 		() as WebSocketSend_8 = WebSocketSend(Aggregate_6_out0 as inPort0Alias)
 		{
 			param
@@ -276,7 +275,8 @@ composite AudioSample
 			AudioFFT = FFT(Functor_14_out0 as audioIn)
 		{
 			window
-				audioIn : tumbling, count(4096) ;
+				//audioIn : tumbling, count(4096) ;
+				audioIn : sliding, count(4096), count(2048) ;
 			param
 				inputTimeSeries : sample ;
 				algorithm : realFFT ;
@@ -356,13 +356,30 @@ composite AudioSample
 		{
 			param
 				file : "/dev/null" ;
-				flush: 1u;
+				flush : 1u ;
 		}
 
 		() as FileSink_12 = FileSink(Aggregate_6_out0)
 		{
 			param
 				file : "/dev/stdout" ;
+		}
+
+		() as WebSocketSend_13 = WebSocketSend(Filter_14_out0 as inPort0Alias)
+		{
+			param
+				port : 8088 ;
+			config
+				placement : partitionColocation("jettyStatus") ;
+		}
+
+		(stream<AudioSample64Type> Filter_14_out0) as Filter_14 =
+			Filter(Functor_14_out0 as inPort0Alias)
+		{
+			logic
+				state : mutable int64 idx = 0 ;
+			param
+				filter :(id[0] == "+") && (idx ++ %(int64) 2) == (int64) 0 ; // count pluses + 1
 		}
 
 }
