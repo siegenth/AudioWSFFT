@@ -15,7 +15,7 @@ type AudioSignalType = tuple<rstring id, rstring signalData> ;
 type AudioCommandType = tuple<rstring id, rstring command,
 	rstring commandData> ;
 type AudioSampleType = tuple<rstring id, float32 sample> ;
-type AudioFFTType = tuple<rstring id, list<float64> magnitude> ;
+type AudioSampleListType = tuple<rstring id, list<float64>samples > ;
 type AudioSample64Type = tuple<rstring id, float64 sample> ;
 type AudioFFTAmpType = tuple<rstring id, list<float64> ampFFT> ;
 type AudioTileType = tuple<rstring id, list<float64> tile> ;
@@ -32,13 +32,13 @@ int64 getMilliseconds(timestamp ts)
  */
 uint8 hexToInt(list<uint8> cvt)
 {
+	list<uint8> mapp = [ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 0, 0, 0, 0, 0, 0, 10,
+		11, 12, 13, 14, 15 ] ;
+		//////////////////// 0, 1, 2, 3, 4, 5, 6. 7, 8, 9, :, ;, <, =, >, ?, @,  A, B, C, D, E, F	
 	mutable uint8 l, h ;
 	mutable uint8 low, high ;
 	l = cvt [ 0 ] -(uint8) 48 ;
 	h = cvt [ 1 ] -(uint8) 48 ;
-	list<uint8> mapp = [ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 0, 0, 0, 0, 0, 0, 10,
-		11, 12, 13, 14, 15 ] ;
-		//////////////////// 0, 1, 2, 3, 4, 5, 6. 7, 8, 9, :, ;, <, =, >, ?, @,  A, B, C, D, E, F
 	low = mapp [ l ] << 4 ;
 	high = mapp [ h ] ;
 	return(low | high) ;
@@ -46,25 +46,11 @@ uint8 hexToInt(list<uint8> cvt)
 
 composite AudioSample
 {
+	param 
+		expression <int32> $SAMPLE_FFT : (int32)4096;
+		expression <int32> $OVERLAP_FFT : (int32)1024;
 	graph
-		() as WebContext_3 = WebContext()
-		{
-			param
-			// URL : http:<IP>:8081//html gets to index.thml 
-			//       in "/home/streamsadmin/Development/html" ;  
-				context : "html" ; // notice, no leading '/',  
-				//contextResourceBase : getThisToolkitDir() + "/opt/html" ;
-				// set to development directory so I can change things rapidly,
-				// without redeploying the application. 
-				//contextResourceBase : "/mnt/streamsadmin/Development/html" ;
-				//contextResourceBase : "/xxxxx";
-				contextResourceBase : "/mnt/hgfs/shareVM/CROSSDEV/audio/opt/html" ;
-				// NOTE the only way I got this to work is to mess up the Data directory
-				// that is set on the build??? I should be to the opt directory. 
-				port : 8080 ;
-			config
-				placement : partitionColocation("jettyStatus") ;
-		}
+	
 
 		(stream<rstring data> WebSocketInject_2_out0) as WebSocketInject_2 =
 		//(stream<list<uint16> data> WebSocketInject_2_out0) as WebSocketInject_2 =
@@ -73,7 +59,7 @@ composite AudioSample
 			param
 				port : 8086 ;
 			config
-				placement : partitionColocation("jettyStatus") ;
+				placement : hostColocation("jettyStatus") ;
 		}
 
 		(stream<AudioDataType> Custom_7_out0 as DataOut ; stream<AudioCommandType>
@@ -107,7 +93,7 @@ composite AudioSample
 							{
 								adt.id = data [ 1 : hash1 ] ;
 								adt.command = data [ hash1 + 1 : hash2 ] ;
-								if((messageCount % 10) == 0)
+								if((messageCount % 100) == 0)
 								{
 									appLog(Log.info, "messageCount:" +(rstring) messageCount + " id:" +
 										adt.id + " command:" + adt.command + " length:" +(rstring)
@@ -132,7 +118,7 @@ composite AudioSample
 								act.command = adt.command ;
 								act.id = adt.id ;
 								act.commandData = data [ hash2 + 1 : ] ;
-								appLog(Log.info, "ID: " + act.id + " COMMMAND:" + act.command) ;
+								//appLog(Log.info, "ID: " + act.id + " COMMMAND:" + act.command) ;
 								if(act.command == "STOP")
 								{
 									submit(Sys.WindowMarker, DataOut) ;
@@ -154,55 +140,6 @@ composite AudioSample
 					submit(act, ControlOut) ;
 				}
 
-		}
-		/** 
-		 * Only send out the binary data to file. 
-		 */
-/* 
-		(stream<BinaryDataType> Functor_8_out0) as StripBlobAudio =
-			Functor(Custom_7_out0 as wavStreamOut)
-		{		}
-		* */
-
-/**
-		 * Write the binary data, when file closes send down the file name.
-		 */
-/* 
-		(stream<rstring fileName> FileSink_7_out1) as WriteBlobAudio =
-			FileSink(Functor_8_out0 as inPort0Alias)
-		{
-			param
-				file : "/tmp/STRM{localtime:%d%M}{id}.wavraw" ;
-				closeMode : punct ;
-				format : block ;
-				flush :(uint32) 1 ;
-		}
-
-		(stream<AudioCommandType> Functor_7_out0) as FileNameFormat =
-			Functor(FileSink_7_out1)
-		{
-			output
-				Functor_7_out0 : id = "?", command = "STOP file closed", commandData =
-					fileName ;
-		}
-
-		() as TraceSink = Custom(Custom_7_out1, Functor_7_out0 as inputStream)
-		{
-			logic
-				onTuple inputStream :
-				{
-					appLog(Log.info, " ID:" + inputStream . id + "command:" + command + ":" +
-						commandData) ;
-				}
-
-		}
-*/
-		() as WebSocketSend_8 = WebSocketSend(Aggregate_6_out0 as inPort0Alias)
-		{
-			param
-				port : 8087 ;
-			config
-				placement : partitionColocation("jettyStatus") ;
 		}
 
 		(stream<AudioSampleType> Custom_10_out0 as O) as SampleGenerator =
@@ -232,62 +169,58 @@ composite AudioSample
 							+(rstring) word + "->" +(rstring) audioSample.sample) ;
 						submit(audioSample, O) ;
 					}
-
-					//submit(audioSample, O) ;
-
 				}
-
 				onPunct Custom_7_out0 : submit(Sys.WindowMarker, O) ;
 		}
-		/* 
-		(stream<AudioSampleType> Aggregate_12_out0) as Aggregate_12 =
-			Aggregate(Custom_10_out0 as inPort0Alias)
-		{
-			window
-				inPort0Alias : tumbling, count(44), partitioned ;
-			param
-				partitionBy : id ;
-			output
-				Aggregate_12_out0 : id = id, sample = Sum(abs(sample)) ;
-		}
-*/
+
 		(stream<AudioSample64Type> Functor_14_out0) as Functor_14 =
 			Functor(Custom_10_out0)
 		{
 			output
 				Functor_14_out0 : id = id, sample =(float64) Custom_10_out0.sample ;
 		}
-		/* 
-		(stream<AudioFFTType> FFTout) as FFT_12 = FFT(Functor_14_out0 as AudioIn)
+		// Window $SAMPLE_FFT with and $OVERLAP_FFT of 1024
+		(stream<AudioSampleListType> StageRawSample_out0 as O) as StageRawSample =
+			Custom(Functor_14_out0 as I)
 		{
-			window
-				AudioIn : sliding, count(2048), count(512) ;
-			param
-				algorithm : realFFT ;
-				inputTimeSeries : sample ;
-				useHamming : true ;
-			output
-				FFTout : magnitude = power() ;
+		logic state: {
+				mutable map <rstring, list<float64>>stage; 
+				list<float64>initFloat64 = []; 
+				mutable AudioSampleListType send;
+				
+			}
+			onTuple I: {
+				if (!has(stage, I.id)) { // not yet added, add it.
+					stage[I.id] = initFloat64;	
+					clearM(stage[I.id]);		
+				}
+				appendM(stage[I.id], I.sample);
+				if (size(stage[I.id]) >= $SAMPLE_FFT) {
+					send.id = I.id;
+					send.samples = stage[I.id];
+					clearM(stage[I.id]);
+					stage[I.id] = send.samples[$SAMPLE_FFT-$OVERLAP_FFT:];	
+					submit(send, O);					
+				}
+			}
 		}
-*/
-///
 		(stream<rstring id, list<complex64> complex> localPort as FFTout) as
-			AudioFFT = FFT(Functor_14_out0 as audioIn)
+			AudioFFT = FFT(StageRawSample_out0 as audioIn)
 		{
-			window
-				//audioIn : tumbling, count(4096) ;
-				audioIn : sliding, count(4096), count(2048) ;
 			param
-				inputTimeSeries : sample ;
+				inputTimeSeries : samples ;
 				algorithm : realFFT ;
 				useHamming : true ;
 			output
-				localPort : complex = FFTAsComplex() ;
+				FFTout : complex = FFTAsComplex() ;
 		}
 
-		///
-		(stream<AudioFFTAmpType> Custom_5_out0 as O) as AbsoluteFFT = Custom(localPort
-			as I)
+		/**
+		 *  Note abs(<Complex>) is  a^2+b^2=c^2 
+		 *  Convert the complex to a magnitude. 
+		 */
+		(stream<AudioFFTAmpType> Custom_5_out0 as O) as AbsoluteFFT =
+			Custom(localPort as I)
 		{
 			logic
 				state :
@@ -310,6 +243,7 @@ composite AudioSample
 		}
 		/**
 		 * Generate full set of tiles, only move the the lowest 4 down the stream.
+		 * Upper tiles have no data, maybe should have just done a slice. 
 		 */
 		(stream<AudioQuantileType> Tile_out0 as O) as Tile = Custom(Custom_5_out0 as
 			I)
@@ -329,7 +263,7 @@ composite AudioSample
 				{
 					clearM(stage) ;
 					sliceTotal = sum(ampFFT) ;
-					sliceSize = size(ampFFT) / 6 ;
+					sliceSize = size(ampFFT) / 10 ;
 					//for (float64 i in range(I.ampFFT));				
 					for(int32 idx in range(0, size(ampFFT), sliceSize))
 					{
@@ -339,30 +273,14 @@ composite AudioSample
 					submit({ id = id, tile1 = stage [ 0 ], tile2 = stage [ 1 ], tile3 = stage
 						[ 2 ], tile4 = stage [ 3 ] }, O) ;
 				}
-
 		}
 
-		(stream<AudioQuantileType> Aggregate_6_out0) as AggregateTile =
-			Aggregate(Tile_out0 as inPort0Alias)
-		{
-			window
-				inPort0Alias : tumbling, count(8) ;
-			output
-				Aggregate_6_out0 : tile1 = Average(tile1), tile2 = Average(tile2), tile3 =
-					Average(tile3), tile4 = Average(tile4) ;
-		}
-
-		() as FileSink_14 = FileSink(Functor_14_out0)
+		() as WebSocketSend_8 = WebSocketSend(Tile_out0 as inPort0Alias)
 		{
 			param
-				file : "/dev/null" ;
-				flush : 1u ;
-		}
-
-		() as FileSink_12 = FileSink(Aggregate_6_out0)
-		{
-			param
-				file : "/dev/stdout" ;
+				port : 8087 ;
+			config
+				placement : hostColocation("jettyStatus") ;
 		}
 
 		() as WebSocketSend_13 = WebSocketSend(Filter_14_out0 as inPort0Alias)
@@ -370,7 +288,7 @@ composite AudioSample
 			param
 				port : 8088 ;
 			config
-				placement : partitionColocation("jettyStatus") ;
+				placement : hostColocation("jettyStatus") ;
 		}
 
 		(stream<AudioSample64Type> Filter_14_out0) as Filter_14 =
@@ -379,7 +297,10 @@ composite AudioSample
 			logic
 				state : mutable int64 idx = 0 ;
 			param
-				filter :(id[0] == "+") && (idx ++ %(int64) 2) == (int64) 0 ; // count pluses + 1
+				filter :(id [ 0 ] == "+") &&(idx ++ %(int64) 2) ==(int64) 0 ; // count pluses + 1
+
 		}
+
+
 
 }
